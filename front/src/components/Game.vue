@@ -1,304 +1,343 @@
 <template>
-  <section class="columns game-answers">
-    <div class="column is-9 answers-column">
-      <b-notification :active="true" :closable="false">
-        <i18n
-          path="Fill all categories with words or phrases beginning with the letter {letter}, then submit your answers using the finish button."
-        >
-          <strong slot="letter">{{ letter }}</strong>
-        </i18n>
-        <span v-if="stop_on_first_completion">
-          {{ $t("The first player to finish interrupts all the others!") }}
-        </span>
+  <section class="columns cracklist-game">
+    <div class="column is-8">
+      <b-notification :closable="false" type="is-info" v-if="list">
+        <strong>{{ $t('Current list') }}:</strong>
+        <span class="current-list">{{ list }}</span>
+        <span class="round-tag">{{ $t('Round #{n}', { n: round }) }}</span>
       </b-notification>
-      <div class="answers-form">
-        <b-field
-          v-for="(category, i) in categories"
-          :key="i"
-          :label="category"
-          :type="!is_category_valid(category) ? 'is-danger' : ''"
-          :message="
-            !is_category_valid(category)
-              ? $t(
-                  'You must enter a word or phrase beginning with the letter {letter}.',
-                  { letter }
-                )
-              : ''
-          "
-        >
-          <b-input
-            :placeholder="letter + '…'"
-            size="is-medium"
-            :autofocus="i == 0"
-            v-model="answers[category]"
-            @input="answers_updated"
-            :disabled="end_signal_received"
-          ></b-input>
-        </b-field>
+
+      <div class="card hand" v-if="hand.length">
+        <header class="card-header">
+          <p class="card-header-title">
+            <vue-fontawesome icon="clipboard" class="mr-2" />
+            {{ $t('Your hand') }}
+          </p>
+          <p class="card-header-icon" v-if="!isCurrentPlayer">
+            {{ $t('Wait for your turn') }}
+          </p>
+        </header>
+        <div class="card-content">
+          <div class="hand-grid">
+            <div
+              v-for="card in hand"
+              :key="card.id"
+              class="hand-card"
+              :class="card.type.toLowerCase()"
+            >
+              <div class="card-body">
+                <template v-if="card.type === 'LETTER'">
+                  <span class="card-title">{{ card.letter }}</span>
+                  <small v-if="card.penalty > 0">
+                    +{{ card.penalty }}
+                  </small>
+                </template>
+                <template v-else>
+                  <span class="card-title">{{ formatAction(card.action) }}</span>
+                </template>
+              </div>
+              <b-button
+                type="is-primary is-small"
+                :disabled="!isCurrentPlayer"
+                @click="playCard(card)"
+              >
+                {{ $t('Play') }}
+              </b-button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card events" v-if="events.length">
+        <header class="card-header">
+          <p class="card-header-title">
+            <vue-fontawesome icon="clipboard" class="mr-2" />
+            {{ $t('Latest actions') }}
+          </p>
+        </header>
+        <div class="card-content">
+          <ul>
+            <li v-for="(event, index) in events" :key="index">
+              <span class="event-time">{{ relativeEventTime(event.timestamp) }}</span>
+              <span class="event-body">{{ renderEvent(event) }}</span>
+            </li>
+          </ul>
+        </div>
       </div>
     </div>
-    <div class="column is-3 time-and-button-column">
-      <div class="box inner-time-and-button">
-        <h3>{{ round_label }}</h3>
-        <CircularProgress
-          :value="percent_time"
-          :label="letter"
-        ></CircularProgress>
-        <div class="field">
-          <b-tooltip
-            :multilined="!we_finished"
-            :label="finish_button_label"
-            type="is-dark"
-            position="is-bottom"
-          >
-            <b-button
-              type="is-primary is-medium"
-              expanded
-              :disabled="
-                we_finished || end_signal_received || !all_fields_completed
-              "
-              @click.once="round_finished"
-            >
-              <template v-if="!we_finished">{{ $t("I finished!") }}</template>
-              <template v-else>{{ $t("Please wait…") }}</template>
-            </b-button>
-          </b-tooltip>
-        </div>
+    <div class="column is-4">
+      <div class="box info-panel">
+        <h3 class="title is-5">{{ $t('Turn') }}</h3>
+        <p>
+          <strong>{{ $t('Current player') }}:</strong>
+          <span>{{ playerName(currentPlayer) }}</span>
+        </p>
+        <p>
+          <strong>{{ $t('Time left') }}:</strong>
+          <span>{{ formattedTimeLeft }}</span>
+        </p>
+        <p>
+          <strong>{{ $t('Direction') }}:</strong>
+          <span>{{ directionLabel }}</span>
+        </p>
+      </div>
+      <div class="box scoreboard" v-if="scores.length">
+        <h3 class="title is-5">
+          <vue-fontawesome icon="award" class="mr-2" />
+          {{ $t('Scoreboard') }}
+        </h3>
+        <ul>
+          <li v-for="score in scores" :key="score.uuid">
+            <span>{{ playerName(score.uuid) }}</span>
+            <span class="points">{{ score.points }}</span>
+          </li>
+        </ul>
+      </div>
+      <div class="box" v-if="roundWinner">
+        <h3 class="title is-6">{{ $t('Round won by {name}', { name: playerName(roundWinner) }) }}</h3>
+      </div>
+      <div class="box" v-if="gameWinner">
+        <h3 class="title is-5">{{ $t('Game won by {name}!', { name: playerName(gameWinner) }) }}</h3>
+        <b-button type="is-primary" @click="askRestart" v-if="isMaster">
+          <vue-fontawesome icon="redo-alt" class="mr-2" />
+          {{ $t('Restart the game') }}
+        </b-button>
       </div>
     </div>
   </section>
 </template>
 
 <script>
-import { is_answer_valid } from "ptitbac-commons";
 import { mapState, mapGetters } from "vuex";
 
-import CircularProgress from "./CircularProgress.vue";
-
 export default {
-  data: function() {
+  data() {
     return {
-      interval_id: null,
-      answers: {},
-      we_finished: false
+      now: Date.now(),
+      timerInterval: null
     };
   },
   computed: {
     ...mapState({
-      slug: state => state.morel.slug,
-      current_round: state => state.game.current_round,
-      total_rounds: state => state.morel.configuration.turns,
-      stop_on_first_completion: state =>
-        state.morel.configuration.stopOnFirstCompletion,
-      categories: state => state.morel.configuration.categories,
-      letter: state => state.game.current_round.letter,
-      total_time: state => state.morel.configuration.time,
-      time_left: state => state.game.current_round.time_left,
-      end_signal_received: state => state.game.current_round.ended
+      hand: state => state.game.hand,
+      events: state => state.game.events,
+      roundWinner: state => state.game.roundWinner,
+      gameWinner: state => state.game.gameWinner,
+      currentPlayer: state => state.game.currentPlayer,
+      round: state => state.game.round,
+      list: state => state.game.list,
+      players: state => state.morel.players,
+      direction: state => state.game.direction
     }),
-
-    ...mapGetters(["is_time_infinite"]),
-
-    percent_time() {
-      return this.is_time_infinite
-        ? 100
-        : 100 - Math.floor((this.time_left / this.total_time) * 100);
+    ...mapGetters(["ordered_scores", "is_current_player", "time_left_ms"]),
+    ...mapState("morel", {
+      isMaster: state => state.master
+    }),
+    scores() {
+      return this.ordered_scores;
     },
-
-    round_label() {
-      const $t = this.$t.bind(this);
-
-      switch (this.current_round.round) {
-        case 1:
-          return $t("First round");
-        case 2:
-          return $t("Second round");
-        case 3:
-          return $t("Third round");
-        case 4:
-          return $t("Fourth round");
-        case 5:
-          return $t("Fifth round");
-        case 6:
-          return $t("Sixth round");
-        case 7:
-          return $t("Seventh round");
-        case 8:
-          return $t("Eighth round");
-        case 9:
-          return $t("Ninth round");
-        case 10:
-          return $t("Tenth round");
-        case 11:
-          return $t("Eleventh round");
-        case 12:
-          return $t("Twelfth round");
-        case 13:
-          return $t("Thirteenth round");
-        case 14:
-          return $t("Fourteenth round");
-        case 15:
-          return $t("Fifteenth round");
-        case 16:
-          return $t("Sixteenth round");
-        case 17:
-          return $t("Seventeenth round");
-        case 18:
-          return $t("Eighteenth round");
-        case 19:
-          return $t("Nineteenth round");
-        case 20:
-          return $t("Twentieth round");
-        case 21:
-          return $t("Twenty-first round");
+    isCurrentPlayer() {
+      return this.is_current_player;
+    },
+    formattedTimeLeft() {
+      // Accessing `now` ensures the interval refreshes the computed value.
+      void this.now;
+      const ms = Math.max(0, this.time_left_ms);
+      const total = Math.floor(ms / 1000);
+      const minutes = Math.floor(total / 60)
+        .toString()
+        .padStart(2, "0");
+      const seconds = (total % 60).toString().padStart(2, "0");
+      return `${minutes}:${seconds}`;
+    },
+    directionLabel() {
+      return this.direction > 0 ? this.$t("Clockwise") : this.$t("Counter-clockwise");
+    }
+  },
+  methods: {
+    formatAction(action) {
+      switch (action) {
+        case "STOP":
+          return this.$t("STOP");
+        case "SWITCH":
+          return this.$t("SWITCH");
+        case "SWAP":
+          return this.$t("SWAP");
+        case "CRACK_LIST":
+          return this.$t("CRACK LIST");
         default:
-          return $t("{n}th round", { n: this.current_round.round });
+          return action;
       }
     },
-    finish_button_label() {
-      const $t = this.$t.bind(this);
-
-      if (this.we_finished) {
-        return $t("Wait for the others…");
-      } else if (!this.all_fields_completed) {
-        return $t("Fill in all categories correctly before submitting");
-      } else if (this.stop_on_first_completion) {
-        return $t(
-          "Click here to submit your answers and interrupt all other players!"
-        );
+    playerName(uuid) {
+      const player = this.players[uuid];
+      return player ? player.pseudonym : this.$t("Unknown");
+    },
+    playCard(card) {
+      if (card.type === "LETTER") {
+        this.$buefy.dialog.prompt({
+          title: this.$t("Answer starting with {letter}", { letter: card.letter }),
+          message: this.$t("Enter your answer"),
+          inputAttrs: {
+            maxlength: 64
+          },
+          trapFocus: true,
+          confirmText: this.$t("Play"),
+          cancelText: this.$t("Cancel"),
+          onConfirm: answer => {
+            this.$store.dispatch("play_card", {
+              cardId: card.id,
+              answer
+            });
+          }
+        });
       } else {
-        return $t(
-          "Click here to submit your answers, and let other players know you're done. You'll still be able to change your answers before the time's up, or as long as not everyone finished."
-        );
+        this.$buefy.dialog.confirm({
+          title: this.$t("Play action card"),
+          message: this.$t("Play {action}?", { action: this.formatAction(card.action) }),
+          confirmText: this.$t("Play"),
+          cancelText: this.$t("Cancel"),
+          onConfirm: () =>
+            this.$store.dispatch("play_card", {
+              cardId: card.id
+            })
+        });
       }
     },
-    valid_answers() {
-      return Object.values(this.answers).filter(answer =>
-        is_answer_valid(this.letter, answer)
-      );
+    renderEvent(event) {
+      const author = this.playerName(event.player);
+      switch (event.type) {
+        case "card":
+          if (event.card.type === "LETTER") {
+            return this.$t("{player} played {letter}: {answer}", {
+              player: author,
+              letter: event.card.letter,
+              answer: event.answer
+            });
+          }
+          return this.$t("{player} played {action}", {
+            player: author,
+            action: this.formatAction(event.card.action)
+          });
+        case "penalty":
+          return this.$t("{player} gave {count} penalty cards", {
+            player: author,
+            count: event.amount
+          });
+        case "penalty-draw":
+          return this.$t("{player} drew {count} cards", {
+            player: author,
+            count: event.amount
+          });
+        case "answer-refused":
+          return this.$t(this.answerRefusedKey(event.reason), { player: author });
+        case "timeout":
+          return this.$t("{player} ran out of time", { player: author });
+        case "list":
+          return this.$t("{player} cracked a new list: {list}", {
+            player: author,
+            list: event.list
+          });
+        case "skip":
+          return this.$t("{player} played STOP", { player: author });
+        default:
+          return "";
+      }
     },
-    all_fields_completed() {
-      return this.valid_answers.length == this.categories.length;
+    answerRefusedKey(reason) {
+      switch (reason) {
+        case "empty":
+          return "{player} did not give an answer";
+        case "invalid-letter":
+          return "{player}'s answer did not start with the right letter";
+        case "duplicate":
+          return "{player}'s answer was already used";
+        default:
+          return "{player}'s answer was refused";
+      }
+    },
+    relativeEventTime(timestamp) {
+      if (!timestamp) return "";
+      const delta = Math.floor((Date.now() - timestamp) / 1000);
+      if (delta < 5) return this.$t("just now");
+      if (delta < 60) return this.$t("{n}s ago", { n: delta });
+      const minutes = Math.floor(delta / 60);
+      return this.$t("{n}m ago", { n: minutes });
+    },
+    askRestart() {
+      this.$store.dispatch("ask_restart_game");
     }
   },
   mounted() {
-    // We check if we have answers stored into the session for this game/round.
-    try {
-      let stored_answers = JSON.parse(
-        sessionStorage.getItem("pb-round-answers") || ""
-      );
-
-      // If the data is fresh and match the current game/round (TODO match with categories or round starting time?)
-      if (
-        stored_answers.game === this.slug &&
-        stored_answers.letter === this.letter &&
-        stored_answers.round === this.current_round.round &&
-        (new Date().getTime() - stored_answers.time) / 1000 < 600
-      ) {
-        this.answers = stored_answers.answers;
-        this.$store.commit("update_round_answers", this.answers);
-      }
-    } catch {} // eslint-disable-line no-empty
-
-    if (!this.is_time_infinite) {
-      // If the time left is not -1, it was updated by the catch up message and
-      // we should keep it.
-      if (this.time_left === -1) {
-        this.$store.commit("update_time_left", this.total_time);
-      }
-
-      this.interval_id = setInterval(() => {
-        this.$store.commit("update_time_left", this.time_left - 1);
-        if (this.time_left == 0) {
-          clearInterval(this.interval_id);
-          this.$store.commit("update_time_left", -1);
-        }
-      }, 1000);
-    }
+    this.timerInterval = setInterval(() => {
+      this.now = Date.now();
+    }, 500);
   },
   beforeDestroy() {
-    clearInterval(this.interval_id);
-    this.$store.commit("update_time_left", -1);
-  },
-  methods: {
-    answers_updated() {
-      this.$store.commit("update_round_answers", this.answers);
-
-      // We store the answers into the session storage, to be able to restore
-      // them in case of a reload.
-      sessionStorage.setItem(
-        "pb-round-answers",
-        JSON.stringify({
-          game: this.slug,
-          round: this.current_round.round,
-          letter: this.letter,
-          time: new Date().getTime(),
-          answers: this.answers
-        })
-      );
-    },
-    round_finished() {
-      this.we_finished = true;
-      this.answers_updated();
-      this.$store.dispatch("round_finished");
-    },
-    is_category_valid(category) {
-      let answer = this.answers[category];
-
-      // We don't want to display an error message if the category is not filled
-      // yet.
-      if (!answer) return true;
-      return is_answer_valid(this.letter, answer);
+    if (this.timerInterval) {
+      clearInterval(this.timerInterval);
     }
-  },
-  components: {
-    CircularProgress
   }
 };
 </script>
 
-<style lang="sass">
-@import "~bulma/sass/utilities/mixins"
+<style lang="sass" scoped>
+.cracklist-game
+  .current-list
+    display: inline-block
+    margin-left: .5rem
 
-.answers-column
-  .field
-    &:not(:first-child)
-      margin-top: 1.4em
-    .label
-      text-align: left
+  .round-tag
+    margin-left: 1rem
+    font-weight: 600
 
-  .answers-form
-    +mobile
-      margin: 0 1rem
+  .hand-grid
+    display: grid
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr))
+    grid-gap: 1rem
 
-.column.time-and-button-column
-  display: flex
-  flex-direction: column
-  align-items: center
+  .hand-card
+    background: hsla(0, 0%, 97%, 1)
+    border-radius: .5rem
+    padding: 1rem
+    text-align: center
+    box-shadow: 0 1px 3px hsla(0, 0%, 0%, .1)
 
-  .inner-time-and-button
-    display: flex
-    flex-direction: column
-    align-items: center
+    &.letter
+      border: 2px solid #209cee
+    &.action
+      border: 2px solid #ff3860
 
-    position: fixed
+    .card-title
+      display: block
+      font-size: 2rem
+      font-weight: 700
+      margin-bottom: .5rem
 
-    +mobile
-      position: unset
-      width: 90%
+  .events
+    margin-top: 1.5rem
 
-    h3
-      font-size: 1.1em
-      font-variant: all-small-caps
-      letter-spacing: .1em
+    ul
+      list-style: none
+      padding: 0
 
-    .circular-progress
-      margin-top: 1.8rem
-      margin-bottom: 2rem
+      li
+        margin-bottom: .5rem
 
-    .field
-      width: 100%
+    .event-time
+      font-size: .8rem
+      color: #888
+      margin-right: .5rem
 
-      button
-        cursor: pointer
+  .scoreboard ul
+    list-style: none
+    padding: 0
+
+    li
+      display: flex
+      justify-content: space-between
+      margin-bottom: .5rem
+
+    .points
+      font-weight: 700
 </style>

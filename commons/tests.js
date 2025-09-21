@@ -5,6 +5,7 @@ const commons = require("./index");
 const is_answer_valid = commons.is_answer_valid;
 const is_answer_accepted = commons.is_answer_accepted;
 const compare_answers = commons.compare_answers;
+const crackList = commons.crack_list;
 
 describe("Answers validity", () => {
   context("when the letter is correct", () => {
@@ -194,5 +195,22 @@ describe("Answers comparison", () => {
   it("should say different for almost equal strings with different accents", () => {
     compare_answers("Tue", "Tué").should.be.false();
     compare_answers("Thé à la tablée", "The a la tablee").should.be.false();
+  });
+});
+
+describe("Crack List helpers", () => {
+  it("should attribute the right penalty", () => {
+    crackList.getPenalty("Q").should.equal(3);
+    crackList.getPenalty("Z").should.equal(2);
+    crackList.getPenalty("H").should.equal(1);
+    crackList.getPenalty("B").should.equal(0);
+  });
+
+  it("should generate decks with expected sizes", () => {
+    const red = crackList.createRedDeck(() => 0.1);
+    const blue = crackList.createBlueDeck(() => 0.2);
+
+    red.length.should.be.aboveOrEqual(60);
+    blue.length.should.be.aboveOrEqual(1);
   });
 });

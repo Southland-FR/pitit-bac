@@ -36,3 +36,5 @@ function normalize_answer(answer) {
 exports.compare_answers = function(answer1, answer2) {
   return normalize_answer(answer1) === normalize_answer(answer2);
 }
+
+exports.crack_list = require("./crack-list");

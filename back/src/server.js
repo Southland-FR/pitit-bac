@@ -8,7 +8,7 @@ import { server as WebSocketServer } from "websocket";
 
 import { Munin } from "munin-http";
 
-import { Game } from "./game";
+import { CrackListGame } from "./cracklist/game";
 import { log_info, log_err, log_debug } from "./logging";
 
 export default class GameServer {
@@ -271,11 +271,6 @@ export default class GameServer {
                 game.update_configuration(user_uuid, message.configuration);
                 break;
 
-            case "change-categories-by-everyone":
-                if (!game || !("enabled" in message)) return;
-                game.set_categories_by_everyone(user_uuid, message.enabled);
-                break;
-
             case "lock-game":
                 if (!game) return;
                 game.set_lock(user_uuid, !!message.locked);
@@ -296,19 +291,9 @@ export default class GameServer {
                 game.start(connection, user_uuid);
                 break;
 
-            case "send-answers":
-                if (!game || !message.answers) return;
-                game.receive_answers(user_uuid, message.answers);
-                break;
-
-            case "send-vote":
-                if (!game || !message.vote || !message.vote.uuid || !message.vote.category) return;
-                game.receive_vote(user_uuid, message.vote.category, message.vote.uuid, message.vote.vote);
-                break;
-
-            case "vote-ready":
-                if (!game) return;
-                game.receive_vote_ready(user_uuid);
+            case "play-card":
+                if (!game || !message.card) return;
+                game.play_card(user_uuid, message.card);
                 break;
 
             case "restart":
@@ -336,7 +321,7 @@ export default class GameServer {
         log_info("Creating game with slug " + slug + " for player " + pseudonym + " (" + user_uuid + ")");
 
         this.send_message(connection, "set-slug", {slug: slug}).then(() => {
-            let game = new Game(slug, this);
+            let game = new CrackListGame(slug, this);
             this.running_games[slug] = game;
 
             this.join_game(connection, user_uuid, pseudonym, game);

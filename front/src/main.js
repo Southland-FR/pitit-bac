@@ -17,7 +17,9 @@ import {
   faUserAltSlash,
   faUserShield,
   faClipboard,
-  faAward
+  faAward,
+  faStopwatch,
+  faRedoAlt
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome";
 
@@ -49,7 +51,9 @@ library.add(
   faUserAltSlash,
   faUserShield,
   faClipboard,
-  faAward
+  faAward,
+  faStopwatch,
+  faRedoAlt
 );
 
 Vue.component("vue-fontawesome", FontAwesomeIcon);
@@ -72,265 +76,252 @@ const i18n = new MorelI18n(
   }
 );
 
-const t = i18n.i18n.t.bind(i18n.i18n);
-
 const store = new Vuex.Store({
   modules: {
     morel: MorelStore(client, i18n)
   },
   state: {
     game: {
-      current_round: {
-        round: 0,
-        letter: "",
-        time_left: -1,
-        ended: false,
-        answers: {},
-        votes: {},
-        interrupted_by: null,
-        countdown_task: null
+      round: 0,
+      list: null,
+      currentPlayer: null,
+      direction: 1,
+      timer: {
+        deadline: null,
+        duration: 0
       },
-
-      scores: [],
-
-      // If the duration is set to this value, then the round will only
-      // stop when the first ends (if stopOnFirstCompletion) or when
-      // all players end (else).
-      infinite_duration: 600
-    },
-    categories_by_everyone: false,
-    search_engines: {
-      Google: "http://www.google.com/search?q={s}",
-      Qwant: "https://qwant.com/?q={s}&t=web"
+      hand: [],
+      scores: {},
+      events: [],
+      lastPlayed: null,
+      roundWinner: null,
+      gameWinner: null
     },
     sticky_players_list: false
   },
   getters: {
-    is_time_infinite: state =>
-      state.morel.configuration.time == state.game.infinite_duration
+    is_current_player: (state, getters, rootState) =>
+      state.game.currentPlayer === rootState.morel.uuid,
+    time_left_ms: state =>
+      state.game.timer.deadline
+        ? Math.max(0, state.game.timer.deadline - Date.now())
+        : 0,
+    ordered_scores: state =>
+      Object.entries(state.game.scores)
+        .map(([uuid, points]) => ({ uuid, points }))
+        .sort((a, b) => b.points - a.points)
   },
   mutations: {
     set_sticky_players_list(state, fixed) {
       state.sticky_players_list = fixed;
     },
 
-    set_categories_by_everyone(state, categories_by_everyone) {
-      state.categories_by_everyone = categories_by_everyone;
+    set_hand(state, hand) {
+      state.game.hand = hand;
     },
 
-    set_countdown_task(state, task) {
-      state.game.current_round.countdown_task = task;
+    set_round(state, round) {
+      state.game.round = round;
     },
 
-    next_round(state, round_config) {
-      state.game.current_round.round = round_config.round;
-      state.game.current_round.letter = round_config.letter;
-      state.game.current_round.ended = false;
-      state.game.current_round.answers = {};
-      state.game.current_round.votes = {};
-      state.game.current_round.interrupted_by = null;
+    set_list(state, list) {
+      state.game.list = list;
     },
 
-    update_round_answers(state, answers) {
-      state.game.current_round.answers = answers;
+    set_current_player(state, uuid) {
+      state.game.currentPlayer = uuid;
     },
 
-    update_time_left(state, time_left) {
-      state.game.current_round.time_left = time_left;
+    set_direction(state, direction) {
+      state.game.direction = direction;
     },
 
-    round_ended(state) {
-      state.game.current_round.ended = true;
+    set_timer(state, { deadline, duration }) {
+      state.game.timer.deadline = deadline;
+      state.game.timer.duration = duration;
     },
 
-    set_interrupted_by(state, interrupted_by) {
-      state.game.current_round.interrupted_by = interrupted_by;
-    },
-
-    set_round_votes(state, votes) {
-      state.game.current_round.votes = votes;
-    },
-
-    set_round_vote(state, vote_update) {
-      Vue.set(
-        state.game.current_round.votes[vote_update.vote.category][
-          vote_update.vote.uuid
-        ].votes,
-        vote_update.voter.uuid,
-        vote_update.vote.vote
-      );
+    append_event(state, event) {
+      const enriched = {
+        timestamp: Date.now(),
+        ...event
+      };
+      state.game.events.unshift(enriched);
+      state.game.events = state.game.events.slice(0, 50);
     },
 
     set_scores(state, scores) {
-      state.game.scores = scores;
+      state.game.scores = { ...scores };
     },
 
-    /**
-     * Resets the game-specific state before restart, and
-     * removes logged-out players completly.
-     */
-    reset_state_for_restart(state) {
-      state.game.current_round = {
-        round: 0,
-        letter: "",
-        time_left: -1,
-        ended: false,
-        answers: {},
-        votes: {},
-        interrupted_by: null,
-        countdown_task: null
-      };
+    set_round_winner(state, winner) {
+      state.game.roundWinner = winner;
+    },
 
-      state.game.scores = [];
+    set_game_winner(state, winner) {
+      state.game.gameWinner = winner;
+    },
+
+    clear_winners(state) {
+      state.game.roundWinner = null;
+      state.game.gameWinner = null;
+    },
+
+    reset_round_state(state) {
+      state.game.currentPlayer = null;
+      state.game.list = null;
+      state.game.timer = {
+        deadline: null,
+        duration: 0
+      };
+      state.game.events = [];
+      state.game.lastPlayed = null;
+      state.game.roundWinner = null;
+    },
+
+    reset_game_state(state) {
+      state.game.round = 0;
+      state.game.list = null;
+      state.game.currentPlayer = null;
+      state.game.direction = 1;
+      state.game.timer = {
+        deadline: null,
+        duration: 0
+      };
+      state.game.hand = [];
+      state.game.scores = {};
+      state.game.events = [];
+      state.game.lastPlayed = null;
+      state.game.roundWinner = null;
+      state.game.gameWinner = null;
     }
   },
   actions: {
-    set_categories_by_everyone(context, { enabled, from_server }) {
-      context.commit("set_categories_by_everyone", enabled);
-
-      if (!from_server) {
-        client.set_categories_by_everyone(enabled);
-      }
-    },
-
     ask_start_game() {
       client.ask_start_game();
-    },
-
-    next_round_soon(context, countdown) {
-      let set_countdown = n => {
-        context.commit("morel/set_loading", {
-          title: n > 0 ? n.toString() : t("Starting soon…"),
-          description: t(
-            "Brace yourself, the next round starts in a few seconds…"
-          )
-        });
-      };
-
-      set_countdown(countdown);
-
-      let task = setInterval(() => {
-        set_countdown(--countdown);
-
-        if (countdown <= 0) {
-          clearTimeout(task);
-          context.commit("set_countdown_task", null);
-        }
-      }, 1000);
-
-      context.commit("set_countdown_task", task);
-    },
-
-    next_round(context, round_config) {
-      if (context.state.game.current_round.countdown_task) {
-        clearTimeout(context.state.game.current_round.countdown_task);
-        context.commit("set_countdown_task", null);
-      }
-
-      context.commit("morel/set_loading", false);
-      context.commit("next_round", round_config);
-      context.commit("morel/set_phase", "ROUND_ANSWERS");
-      context.dispatch("morel/reset_all_readyness");
-    },
-
-    round_finished() {
-      client.send_answers();
-    },
-
-    end_round_and_send_answers(context) {
-      context.commit("round_ended");
-      context.commit(
-        "morel/set_loading",
-        t("Collecting answers from all players…")
-      );
-
-      client.send_answers();
-    },
-
-    start_vote(context, answers) {
-      context.commit("morel/set_phase", "ROUND_VOTES");
-      context.commit("morel/set_loading", false);
-      context.commit("set_round_votes", answers.answers);
-      context.dispatch("morel/reset_all_readyness");
-
-      if (answers.interrupted_by) {
-        context.commit("set_interrupted_by", answers.interrupted_by);
-      }
-    },
-
-    send_vote_update(context, vote_update) {
-      context.commit("set_round_vote", vote_update);
-      client.send_vote(
-        vote_update.vote.uuid,
-        vote_update.vote.category,
-        vote_update.vote.vote
-      );
-    },
-
-    update_vote(context, vote_update) {
-      context.commit("set_round_vote", vote_update);
-    },
-
-    vote_ready() {
-      client.send_vote_ready();
-    },
-
-    end_game(context, scores) {
-      context.commit("set_scores", scores.scores);
-      context.commit("morel/set_phase", "END");
     },
 
     ask_restart_game() {
       client.restart_game();
     },
 
-    restart_game(context) {
-      context.commit("reset_state_for_restart");
-      context.commit("morel/clear_offline_players");
-      context.commit("morel/set_phase", "CONFIG");
-
-      sessionStorage.removeItem("pb-round-answers");
+    play_card(context, card) {
+      client.play_card(card);
     },
 
-    catch_up(context, catch_up) {
-      switch (catch_up.state) {
-        case "ROUND_ANSWERS_COUNTDOWN":
-          context.dispatch("next_round_soon", catch_up.countdown);
-          break;
-
-        case "ROUND_ANSWERS":
-          context.dispatch("next_round", {
-            round: catch_up.round.round,
-            letter: catch_up.round.letter
-          });
-
-          context.dispatch(
-            "morel/set_all_readyness",
-            catch_up.round.players_ready
-          );
-
-          if (catch_up.round.time_left) {
-            context.commit("update_time_left", catch_up.round.time_left);
-          }
-          break;
-
-        case "ROUND_VOTES":
-          context.dispatch("start_vote", {
-            answers: catch_up.vote.answers,
-            interrupted_by: catch_up.vote.interrupted
-          });
-          context.dispatch(
-            "morel/set_all_readyness",
-            catch_up.vote.players_ready
-          );
-          break;
-
-        case "END":
-          context.dispatch("end_game", {
-            scores: catch_up.end.scores
-          });
-          break;
+    catch_up(context, payload) {
+      if (payload.configuration) {
+        context.commit("morel/update_configuration", payload.configuration);
       }
+
+      if (payload.round) {
+        context.commit("set_round", payload.round);
+      }
+
+      if (payload.list) {
+        context.commit("set_list", payload.list);
+      }
+
+      if (payload.currentPlayer) {
+        context.commit("set_current_player", payload.currentPlayer);
+      }
+
+      if (payload.direction) {
+        context.commit("set_direction", payload.direction);
+      }
+
+      if (payload.scores) {
+        context.commit("set_scores", payload.scores);
+      }
+
+      if (payload.deadline) {
+        context.commit("set_timer", {
+          deadline: payload.deadline,
+          duration: payload.duration || 0
+        });
+      }
+
+      if (payload.state === "TURN" || payload.state === "ROUND_SETUP") {
+        context.commit("morel/set_phase", "PLAY");
+      } else if (payload.state === "ROUND_END") {
+        context.commit("morel/set_phase", "ROUND_END");
+      } else if (payload.state === "END") {
+        context.commit("morel/set_phase", "END");
+      } else {
+        context.commit("morel/set_phase", "CONFIG");
+      }
+    },
+
+    turn_started(context, { player, deadline, duration, list, round }) {
+      context.commit("set_round", round);
+      context.commit("set_list", list);
+      context.commit("set_current_player", player);
+      context.commit("set_timer", { deadline, duration });
+      context.commit("clear_winners");
+      context.commit("morel/set_phase", "PLAY");
+    },
+
+    card_played(context, event) {
+      context.commit("append_event", {
+        type: "card",
+        ...event
+      });
+    },
+
+    penalty_applied(context, event) {
+      context.commit("append_event", {
+        type: "penalty",
+        ...event
+      });
+    },
+
+    penalty_draw(context, event) {
+      context.commit("append_event", {
+        type: "penalty-draw",
+        ...event
+      });
+    },
+
+    answer_refused(context, event) {
+      context.commit("append_event", {
+        type: "answer-refused",
+        ...event
+      });
+    },
+
+    turn_timeout(context, event) {
+      context.commit("append_event", {
+        type: "timeout",
+        ...event
+      });
+    },
+
+    list_changed(context, { player, list }) {
+      context.commit("set_list", list);
+      context.commit("append_event", { type: "list", player, list });
+    },
+
+    skip_next(context, event) {
+      context.commit("append_event", { type: "skip", ...event });
+    },
+
+    round_ended(context, { winner, scores }) {
+      context.commit("set_scores", scores);
+      context.commit("set_round_winner", winner);
+      context.commit("set_timer", { deadline: null, duration: 0 });
+      context.commit("morel/set_phase", "ROUND_END");
+    },
+
+    game_ended(context, { winner, scores }) {
+      context.commit("set_scores", scores);
+      context.commit("set_game_winner", winner);
+      context.commit("set_timer", { deadline: null, duration: 0 });
+      context.commit("morel/set_phase", "END");
+    },
+
+    restart_game_state(context) {
+      context.commit("reset_game_state");
+      context.commit("morel/set_phase", "CONFIG");
     }
   }
 });
@@ -341,28 +332,17 @@ i18n.set_store(store);
 i18n.load_locale_from_browser();
 
 store.commit("morel/update_configuration", {
-  categories: [],
-  stopOnFirstCompletion: true,
-  turns: 4,
-  time: 400,
-  alphabet: "",
-  scores: {
-    valid: 10,
-    duplicate: 5,
-    invalid: 0,
-    refused: 0,
-    empty: 0
-  }
+  pointsToWin: 3,
+  autoPenaltyDistribution: true
 });
 
-// We read the slug from the URL, if it exists.
 const url_slug = window.location.pathname.slice(1).split("/")[0];
 if (url_slug) {
-  store.dispatch("morel/set_slug", url_slug);
+  store.commit("morel/set_slug", url_slug);
+  store.commit("morel/set_phase", "PSEUDONYM");
 }
 
 new Vue({
-  render: h => h(App),
-  store: store,
-  i18n: i18n.i18n
+  store,
+  render: h => h(App)
 }).$mount("#app");

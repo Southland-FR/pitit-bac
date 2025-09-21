@@ -1,6 +1,8 @@
-# P'tit bac
+# Crack List
 
-This software is a VueJS + websockets implementation of a multiplayer “Petit Bac” game (also “Jeu du Baccalauréat”), sometimes translated as _Tutti Frutti_ or _Stadt Land Fluss_, and close to Hasbro's _Scattergories™_.
+This software is now a VueJS + websockets implementation of **Crack List**, the card-driven party game inspired by “Petit Bac”. Draw list cards, empty your hand of letter and action cards, and race to crack the list before your friends.
+
+The legacy Petit Bac rules are no longer available in the default frontend, which has been redesigned around Crack List mechanics (letter/action cards, penalties, reverse/stop/swap actions, Crack List list-switching, timer pressure, and scoreboard tracking).
 
 It uses VueJS and Buefy for the (static) front-end, and a Node websocket server for the backend. The software is currently only available in French and for Latin alphabets, but this may evolve.
 

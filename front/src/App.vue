@@ -49,9 +49,7 @@
           </div>
           <div class="column is-9">
             <GameConfiguration v-if="phase === 'CONFIG'"></GameConfiguration>
-            <Game v-else-if="phase === 'ROUND_ANSWERS'"></Game>
-            <GameVote v-else-if="phase === 'ROUND_VOTES'"></GameVote>
-            <GameEnd v-else-if="phase === 'END'"></GameEnd>
+            <Game v-else></Game>
           </div>
         </div>
       </div>
@@ -98,8 +96,6 @@ import { mapState } from "vuex";
 
 import GameConfiguration from "./components/GameConfiguration.vue";
 import Game from "./components/Game.vue";
-import GameVote from "./components/GameVote.vue";
-import GameEnd from "./components/GameEnd.vue";
 
 export default {
   name: "App",
@@ -124,9 +120,7 @@ export default {
 
   components: {
     GameConfiguration,
-    Game,
-    GameVote,
-    GameEnd
+    Game
   }
 };
 </script>
